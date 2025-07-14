@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wortvorhersage mit LSTM</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <h1>German Word Prediction</h1>
+    <textarea id="inputText" rows="3" cols="50" placeholder="Text eingeben..."></textarea><br>
+    <button id="predictBtn">Vorhersage</button>
+    <button id="continueBtn">Weiter</button>
+    <button id="autoBtn">Auto</button>
+    <button id="stopBtn">Stopp</button>
+    <button id="resetBtn">Reset</button>
+    <div id="predictions"></div>
+    <div id="discussion">
+        <h2>Diskussion</h2>
+        <p>Das Modell basiert auf einem gestapelten LSTM-Netzwerk mit 2 Schichten à 100 Einheiten und nutzt Adam-Optimierung. Experimentell wurde festgestellt, dass kleinere Lernraten zu stabileren Ergebnissen führen. Das UX-Design wurde nach ISO 9241-110 Prinzipien gestaltet.</p>
+    </div>
+    <script>
+const inputText = document.getElementById('inputText');
+const predictionsDiv = document.getElementById('predictions');
+let model, dictionary = {}, reverseDictionary = {};
+
+async function loadModelAndData() {
+    model = await tf.loadLayersModel('model/model.json');
+    const response = await fetch('model/dictionary.json');
+    const dictData = await response.json();
+    dictionary = dictData.dictionary;
+    reverseDictionary = dictData.reverseDictionary;
+}
+
+function preprocessInput(text) {
+    const tokens = text.toLowerCase().split(/\s+/);
+    const indices = tokens.map(word => dictionary[word] || 0);
+    return tf.tensor([indices], [1, indices.length]);
+}
+
+function postprocessPrediction(prediction) {
+    const probs = prediction.dataSync();
+    let probList = [];
+    for (let i = 0; i < probs.length; i++) {
+        probList.push({ word: reverseDictionary[i] || "?", prob: probs[i] });
+    }
+    probList.sort((a, b) => b.prob - a.prob);
+    return probList.slice(0, 10);
+}
+
+async function predictNextWord() {
+    const inputTensor = preprocessInput(inputText.value);
+    const prediction = model.predict(inputTensor);
+    const results = postprocessPrediction(prediction);
+    predictionsDiv.innerHTML = results.map(r => `<button onclick="appendWord('${r.word}')">${r.word} (${(r.prob * 100).toFixed(2)}%)</button>`).join(' ');
+}
+
+function appendWord(word) {
+    inputText.value += ' ' + word;
+    predictNextWord();
+}
+
+let autoInterval;
+
+function autoPredict() {
+    autoInterval = setInterval(() => {
+        const inputTensor = preprocessInput(inputText.value);
+        const prediction = model.predict(inputTensor);
+        const results = postprocessPrediction(prediction);
+        appendWord(results[0].word);
+    }, 1000);
+}
+
+function stopAutoPredict() {
+    clearInterval(autoInterval);
+}
+
+function resetAll() {
+    inputText.value = '';
+    predictionsDiv.innerHTML = '';
+}
+
+document.getElementById('predictBtn').addEventListener('click', predictNextWord);
+document.getElementById('continueBtn').addEventListener('click', () => {
+    predictNextWord();
+    appendWord(postprocessPrediction(model.predict(preprocessInput(inputText.value)))[0].word);
+});
+document.getElementById('autoBtn').addEventListener('click', autoPredict);
+document.getElementById('stopBtn').addEventListener('click', stopAutoPredict);
+document.getElementById('resetBtn').addEventListener('click', resetAll);
+
+loadModelAndData();
+    </script>
+</body>
+</html>
